@@ -1,4 +1,4 @@
-CREATE EXTERNAL TABLE IF NOT EXISTS airline_loyalty_raw (
+CREATE EXTERNAL TABLE IF NOT EXISTS airline-analytics.airline_loyalty_raw (
     loyalty_number BIGINT,
     country STRING,
     province STRING,

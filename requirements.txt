@@ -1,8 +1,13 @@
-pandas
 pyarrow
+
+# Environment Variables
 python-dotenv
 
 # AWS stack
 s3fs
 fsspec
 boto3
+
+# Data Analysis
+pandas
+matplotlib

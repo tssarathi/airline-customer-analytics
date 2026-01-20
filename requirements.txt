@@ -1,5 +1,8 @@
 pandas
 pyarrow
-boto3
-s3fs
 python-dotenv
+
+# AWS stack
+s3fs
+fsspec
+boto3

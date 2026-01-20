@@ -30,6 +30,12 @@ def main():
     )
     csv_to_parquet_s3(clh_csv_path_s3, clh_parquet_path_s3, cast_clh)
 
+    cfa_csv_path_s3 = f"s3://{S3_BUCKET}/{RAW_FOLDER}/customer_flight_activity.csv"
+    cfa_parquet_path_s3 = (
+        f"s3://{S3_BUCKET}/{PROCESSED_FOLDER}/customer_flight_activity.parquet"
+    )
+    csv_to_parquet_s3(cfa_csv_path_s3, cfa_parquet_path_s3)
+
     print("Tansformed CSV to Parquet successfully")
 
 

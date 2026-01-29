@@ -11,3 +11,6 @@ boto3
 # Data Analysis
 pandas
 matplotlib
+
+# Machine Learning
+scikit-learn

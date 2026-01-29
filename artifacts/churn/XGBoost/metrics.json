@@ -1,0 +1,7 @@
+{
+  "recency_threshold_months": 3,
+  "roc_auc": 0.8775516321137944,
+  "pr_auc": 0.8260009220497694,
+  "churn_rate": 0.21646651132222022,
+  "n_customers": 16737
+}

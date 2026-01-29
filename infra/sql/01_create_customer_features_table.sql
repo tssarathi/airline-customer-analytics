@@ -18,4 +18,4 @@ CREATE EXTERNAL TABLE IF NOT EXISTS airline_analytics.customer_features (
     rfm_segment STRING
 )
 STORED AS PARQUET
-LOCATION 's3://airline-customer-analytics/processed/customer_features.parquet';
+LOCATION 's3://airline-customer-analytics/curated/customer_features/';

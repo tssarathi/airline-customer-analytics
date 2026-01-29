@@ -1,6 +1,6 @@
 from src.utils.athena_utils import run_sql_file
 from src.utils.s3_utils import upload_file_to_s3
-from src.config.config import S3_BUCKET, RAW_FOLDER, PROCESSED_FOLDER
+from src.config.config import S3_BUCKET, RAW_FOLDER, PROCESSED_FOLDER, CURATED_FOLDER
 from src.etl.csv_to_parquet import csv_to_parquet_s3
 from src.etl.transforms import cast_clh
 from src.etl.customer_features import customer_features_to_parquet_s3
@@ -41,7 +41,7 @@ def main():
 
     # Build Customer Features
     customer_features_parquet_path_s3 = (
-        f"s3://{S3_BUCKET}/{PROCESSED_FOLDER}/customer_features.parquet"
+        f"s3://{S3_BUCKET}/{CURATED_FOLDER}/customer_features/customer_features.parquet"
     )
     customer_features_to_parquet_s3(
         input_cfa_parquet_s3=cfa_parquet_path_s3,

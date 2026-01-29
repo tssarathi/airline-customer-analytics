@@ -56,6 +56,13 @@ def main():
 
     print("Athena table 'customer_features' created successfully")
 
+    # Create Athena Views
+    run_sql_file("infra/sql/02_segment_distribution.sql")
+    run_sql_file("infra/sql/03_at_high_risk.sql")
+    run_sql_file("infra/sql/04_segment_by_province.sql")
+
+    print("Athena views created successfully")
+
 
 if __name__ == "__main__":
     main()

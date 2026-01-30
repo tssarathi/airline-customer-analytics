@@ -17,7 +17,7 @@ def run_processing_job():
     input_s3 = (
         f"s3://{S3_BUCKET}/{CURATED_FOLDER}/customer_features/customer_features.parquet"
     )
-    output_s3 = f"s3://{S3_BUCKET}/{CURATED_FOLDER}/artifacts/churn/"
+    output_s3 = f"s3://{S3_BUCKET}/{CURATED_FOLDER}/churn/"
     boto_sess = boto3.Session(region_name=AWS_REGION)
     sm_sess = Session(boto_session=boto_sess)
     IMAGE_URI = retrieve(

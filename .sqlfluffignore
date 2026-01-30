@@ -1,1 +1,2 @@
 infra/sql/01_create_customer_features_table.sql
+infra/sql/02_create_churn_pred_table.sql

@@ -27,15 +27,20 @@ def run_sql_file(sql_path: str, database: str | None = None) -> None:
     print(f"Query execution started with ID: {query_id}")
 
     while True:
-        status = athena.get_query_execution(QueryExecutionId=query_id)[
+        exec_result = athena.get_query_execution(QueryExecutionId=query_id)[
             "QueryExecution"
-        ]["Status"]["State"]
+        ]
+        status = exec_result["Status"]["State"]
 
         if status == "SUCCEEDED":
             print("Query execution completed successfully")
             return
 
         if status in ["FAILED", "CANCELLED"]:
-            raise RuntimeError("Query execution failed")
+            st = exec_result["Status"]
+            reason = st.get("StateChangeReason", "")
+            err = st.get("AthenaError", {})
+            msg = err.get("ErrorMessage") or reason or "Query execution failed"
+            raise RuntimeError(f"Athena query failed: {msg}")
 
         time.sleep(1)

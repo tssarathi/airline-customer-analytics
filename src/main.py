@@ -38,7 +38,7 @@ def main():
     )
     csv_to_parquet_s3(cfa_csv_path_s3, cfa_parquet_path_s3)
 
-    print("Tansformed CSV to Parquet successfully")
+    print("Transformed CSV to Parquet successfully")
 
     # Build Customer Features
     customer_features_parquet_path_s3 = (

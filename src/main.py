@@ -4,14 +4,15 @@ from src.config.config import S3_BUCKET, RAW_FOLDER, PROCESSED_FOLDER, CURATED_F
 from src.etl.csv_to_parquet import csv_to_parquet_s3
 from src.etl.transforms import cast_clh
 from src.etl.customer_features import customer_features_to_parquet_s3
+from src.scripts.run_xgb_job import run_processing_job
 
 
 def main():
     print("Airline Customer Analytics project booted successfully")
 
-    # Create Glue database
+    # Create Athena database
     run_sql_file("infra/sql/00_create_database.sql")
-    print("Glue database 'airline_analytics' created successfully")
+    print("Athena database 'airline_analytics' created successfully")
 
     # Upload data to S3
     clh_path_local = "data/raw/Customer Loyalty History.csv"
@@ -62,6 +63,11 @@ def main():
     run_sql_file("infra/sql/04_segment_by_province.sql")
 
     print("Athena views created successfully")
+
+    # Run XGBoost Processing Job
+    run_processing_job()
+
+    print("XGBoost processing job completed successfully")
 
 
 if __name__ == "__main__":

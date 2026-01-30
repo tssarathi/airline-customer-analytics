@@ -1,13 +1,16 @@
 import time
 from pathlib import Path
 import boto3
-from src.config.config import S3_BUCKET, ATHENA_RESULTS_FOLDER
+from src.config.config import (
+    AWS_REGION,
+    ATHENA_RESULTS_FOLDER,
+    S3_BUCKET,
+)
 
 
 def run_sql_file(sql_path: str, database: str | None = None) -> None:
     query = Path(sql_path).read_text()
-
-    athena = boto3.client("athena")
+    athena = boto3.client("athena", region_name=AWS_REGION)
 
     params = {
         "QueryString": query,

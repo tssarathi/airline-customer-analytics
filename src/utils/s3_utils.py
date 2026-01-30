@@ -1,9 +1,11 @@
 import boto3
 from botocore.exceptions import ClientError
 
+from src.config.config import AWS_REGION
+
 
 def s3_object_exists(bucket: str, key: str) -> bool:
-    s3 = boto3.client("s3")
+    s3 = boto3.client("s3", region_name=AWS_REGION)
     try:
         s3.head_object(Bucket=bucket, Key=key)
         return True
@@ -20,7 +22,7 @@ def parse_s3_uri(s3_uri: str) -> tuple[str, str]:
 
 
 def upload_file_to_s3(local_path: str, output_s3_uri: str) -> None:
-    s3 = boto3.client("s3")
+    s3 = boto3.client("s3", region_name=AWS_REGION)
 
     bucket, key = parse_s3_uri(output_s3_uri)
     if s3_object_exists(bucket, key):

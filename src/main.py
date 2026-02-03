@@ -71,12 +71,13 @@ def main():
 
         print("Athena table 'customer_scored' created successfully")
 
-    # Create Athena Views
-    # run_sql_file("infra/sql/02_segment_distribution.sql")
-    # run_sql_file("infra/sql/03_at_high_risk.sql")
-    # run_sql_file("infra/sql/04_segment_by_province.sql")
+        # Create Athena Views
+        run_sql_file("infra/sql/04_create_kpi_overview_view.sql")
+        run_sql_file("infra/sql/05_create_segment_summary_view.sql")
+        run_sql_file("infra/sql/06_create_province_summary_view.sql")
+        run_sql_file("infra/sql/07_create_top_risk_customers_view.sql")
 
-    # print("Athena views created successfully")
+        print("Athena views created successfully")
 
 
 if __name__ == "__main__":

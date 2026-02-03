@@ -8,6 +8,7 @@ s3fs
 fsspec
 boto3
 sagemaker
+awswrangler
 
 # Data Analysis
 pandas
@@ -16,3 +17,9 @@ matplotlib
 # Machine Learning
 scikit-learn
 xgboost
+
+# Dashboard
+streamlit
+
+# Jupyter
+ipykernel

@@ -197,11 +197,12 @@ top_risk_df = (
             "churn_score": "Churn Score",
         }
     )
+    .reset_index(drop=True)
 )
+top_risk_df.index = top_risk_df.index + 1
 
-top_risk_df["CLV"] = (
-    top_risk_df["CLV"].round(0).map(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-)
+
+top_risk_df["CLV"] = top_risk_df["CLV"].round(0).map(lambda x: f"${x:,.0f}")
 top_risk_df["Churn Score"] = top_risk_df["Churn Score"].round(0)
 
 st.dataframe(top_risk_df, width="stretch")

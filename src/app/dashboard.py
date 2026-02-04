@@ -37,7 +37,6 @@ def load_customer_scored():
         ctas_approach=False,
     )
 
-    # Casts / types
     if "is_cancelled" in df.columns:
         df["is_cancelled"] = df["is_cancelled"].astype(bool)
 
@@ -62,25 +61,44 @@ st.caption("Customer portfolio snapshot and churn risk prioritisation")
 
 st.sidebar.header("Filters")
 
-prov_domain = sorted(df["province"].unique().tolist())
-seg_domain = [s for s in RFM_DOMAIN if s in set(df["rfm_segment"].unique().tolist())]
+prov_domain = sorted(df["province"].dropna().unique().tolist())
+seg_domain = [
+    s for s in RFM_DOMAIN if s in set(df["rfm_segment"].dropna().unique().tolist())
+]
+gender_domain = sorted(
+    [g for g in df["gender"].dropna().unique().tolist() if str(g).strip() != ""]
+)
+card_domain = sorted(
+    [c for c in df["loyalty_card"].dropna().unique().tolist() if str(c).strip() != ""]
+)
 
 selected_provinces = st.sidebar.multiselect("Province", prov_domain, default=[])
 selected_segments = st.sidebar.multiselect("RFM Segment", seg_domain, default=[])
+selected_gender = st.sidebar.selectbox("Gender", ["All"] + gender_domain, index=0)
+selected_cards = st.sidebar.multiselect("Loyalty Card", card_domain, default=[])
 
 mask = pd.Series(True, index=df.index)
+
 if selected_provinces:
     mask &= df["province"].isin(selected_provinces)
 if selected_segments:
     mask &= df["rfm_segment"].isin(selected_segments)
+if selected_gender != "All":
+    mask &= df["gender"] == selected_gender
+if selected_cards:
+    mask &= df["loyalty_card"].isin(selected_cards)
 
 df_base = df.loc[mask].copy()
 
+if df_base.empty:
+    st.warning(
+        "No customers exist for the selected filter combination. Please adjust your filters."
+    )
+    st.stop()
+
 total_customers = df_base["loyalty_number"].nunique()
 avg_clv = df_base["clv"].mean()
-cancelled_rate = (
-    df_base["is_cancelled"].mean() if "is_cancelled" in df_base.columns else 0
-)
+cancelled_rate = df_base["is_cancelled"].mean()
 avg_recency_days = df_base["recency"].mean() * 30
 avg_frequency = df_base["frequency"].mean()
 avg_monetary_value = df_base["monetary"].mean()
@@ -97,12 +115,8 @@ c7.metric("Avg Tenure (months)", f"{(avg_tenure_months or 0):.0f}")
 
 st.divider()
 
-seg_base_df = (
-    df if not selected_provinces else df[df["province"].isin(selected_provinces)]
-)
-
 seg_df = (
-    seg_base_df.groupby("rfm_segment", dropna=False)
+    df_base.groupby("rfm_segment")
     .agg(
         customers=("loyalty_number", "nunique"),
         avg_clv=("clv", "mean"),
@@ -117,12 +131,8 @@ seg_df = (
     .sort_values("avg_churn_score", ascending=False)
 )
 
-prov_base_df = (
-    df if not selected_segments else df[df["rfm_segment"].isin(selected_segments)]
-)
-
 province_df = (
-    prov_base_df.groupby("province", dropna=False)
+    df_base.groupby("province")
     .agg(
         customers=("loyalty_number", "nunique"),
         avg_clv=("clv", "mean"),
@@ -152,17 +162,16 @@ province_df["churn_norm"] = (
     0.5 if denom == 0 else (province_df["avg_churn_score"] - churn_min) / denom
 )
 
-base1 = (
+chart1 = (
     alt.Chart(seg_df)
     .mark_bar()
     .encode(
         x=alt.X(
             "rfm_segment:N",
-            title="RFM Segment",
             axis=alt.Axis(labelAngle=-45, labelBaseline="top", labelOverlap=False),
             scale=alt.Scale(domain=RFM_DOMAIN),
         ),
-        y=alt.Y("customers:Q", title="No of Customers"),
+        y=alt.Y("customers:Q"),
         color=alt.Color(
             "churn_norm:Q",
             scale=alt.Scale(scheme="orangered", domain=[0, 1]),
@@ -175,60 +184,30 @@ base1 = (
             ),
         ),
         tooltip=[
-            alt.Tooltip("customers:Q", format=",", title="No of Customers"),
-            alt.Tooltip("avg_clv:Q", format="$,.0f", title="Avg CLV"),
-            alt.Tooltip("avg_churn_score:Q", format=".0f", title="Avg Churn Score"),
-            alt.Tooltip(
-                "avg_recency_days:Q", format=",.0f", title="Avg Recency (days)"
-            ),
-            alt.Tooltip(
-                "avg_frequency:Q", format=",.0f", title="Avg Frequency (flights)"
-            ),
-            alt.Tooltip("avg_monetary:Q", format=",.0f", title="Avg Monetary (kms)"),
-            alt.Tooltip(
-                "avg_tenure_months:Q", format=",.0f", title="Avg Tenure (months)"
-            ),
-            alt.Tooltip("is_cancelled:Q", format=".0%", title="Cancellation Rate"),
+            alt.Tooltip("customers:Q", format=","),
+            alt.Tooltip("avg_clv:Q", format="$,.0f"),
+            alt.Tooltip("avg_churn_score:Q", format=".0f"),
+            alt.Tooltip("avg_recency_days:Q", format=",.0f"),
+            alt.Tooltip("avg_frequency:Q", format=",.0f"),
+            alt.Tooltip("avg_monetary:Q", format=",.0f"),
+            alt.Tooltip("avg_tenure_months:Q", format=",.0f"),
+            alt.Tooltip("is_cancelled:Q", format=".0%"),
         ],
     )
 )
 
-base1_holder = (
-    alt.Chart(seg_df)
-    .mark_bar(opacity=0)
-    .encode(
-        x=alt.X(
-            "rfm_segment:N",
-            title="RFM Segment",
-            axis=alt.Axis(labelAngle=-45, labelBaseline="top", labelOverlap=False),
-            scale=alt.Scale(domain=RFM_DOMAIN),
-        )
-    )
-)
-
-base1_visible = (
-    base1
-    if not selected_segments
-    else base1.transform_filter(
-        alt.FieldOneOfPredicate(field="rfm_segment", oneOf=selected_segments)
-    )
-)
-
-chart1 = base1_holder + base1_visible
-
-base2 = (
+chart2 = (
     alt.Chart(province_df)
     .mark_bar()
     .encode(
         x=alt.X(
             "province:N",
-            title="Province",
             axis=alt.Axis(
                 labelAngle=-45, labelBaseline="top", labelLimit=200, labelOverlap=False
             ),
             scale=alt.Scale(domain=prov_domain),
         ),
-        y=alt.Y("customers:Q", title="No of Customers"),
+        y=alt.Y("customers:Q"),
         color=alt.Color(
             "churn_norm:Q",
             scale=alt.Scale(scheme="orangered", domain=[0, 1]),
@@ -240,56 +219,67 @@ base2 = (
             ),
         ),
         tooltip=[
-            alt.Tooltip("customers:Q", format=",", title="No of Customers"),
-            alt.Tooltip("avg_clv:Q", format="$,.0f", title="Avg CLV"),
-            alt.Tooltip("avg_churn_score:Q", format=".0f", title="Avg Churn Score"),
-            alt.Tooltip(
-                "avg_recency_days:Q", format=",.0f", title="Avg Recency (days)"
-            ),
-            alt.Tooltip(
-                "avg_frequency:Q", format=",.0f", title="Avg Frequency (flights)"
-            ),
-            alt.Tooltip("avg_monetary:Q", format=",.0f", title="Avg Monetary (kms)"),
-            alt.Tooltip(
-                "avg_tenure_months:Q", format=",.0f", title="Avg Tenure (months)"
-            ),
-            alt.Tooltip("is_cancelled:Q", format=".0%", title="Cancellation Rate"),
+            alt.Tooltip("customers:Q", format=","),
+            alt.Tooltip("avg_clv:Q", format="$,.0f"),
+            alt.Tooltip("avg_churn_score:Q", format=".0f"),
+            alt.Tooltip("avg_recency_days:Q", format=",.0f"),
+            alt.Tooltip("avg_frequency:Q", format=",.0f"),
+            alt.Tooltip("avg_monetary:Q", format=",.0f"),
+            alt.Tooltip("avg_tenure_months:Q", format=",.0f"),
+            alt.Tooltip("is_cancelled:Q", format=".0%"),
         ],
     )
 )
 
-base2_holder = (
-    alt.Chart(province_df)
-    .mark_bar(opacity=0)
-    .encode(
-        x=alt.X(
-            "province:N",
-            title="Province",
-            axis=alt.Axis(
-                labelAngle=-45, labelBaseline="top", labelLimit=200, labelOverlap=False
-            ),
-            scale=alt.Scale(domain=prov_domain),
-        )
-    )
-)
-
-base2_visible = (
-    base2
-    if not selected_provinces
-    else base2.transform_filter(
-        alt.FieldOneOfPredicate(field="province", oneOf=selected_provinces)
-    )
-)
-
-chart2 = base2_holder + base2_visible
-
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Customer Segments")
-    st.altair_chart(chart1)
+    st.altair_chart(chart1, width="stretch")
 with col2:
     st.subheader("Customer Provinces")
-    st.altair_chart(chart2)
+    st.altair_chart(chart2, width="stretch")
+
+st.divider()
+
+p1, p2 = st.columns(2)
+
+with p1:
+    st.subheader("Customer Gender Distribution")
+    gender_df = df_base.groupby("gender").size().reset_index(name="count")
+    gender_df["percent"] = gender_df["count"] / gender_df["count"].sum()
+    gender_pie = (
+        alt.Chart(gender_df)
+        .mark_arc()
+        .encode(
+            theta="count:Q",
+            color="gender:N",
+            tooltip=[
+                alt.Tooltip("gender:N"),
+                alt.Tooltip("count:Q", format=","),
+                alt.Tooltip("percent:Q", format=".1%"),
+            ],
+        )
+    )
+    st.altair_chart(gender_pie, width="stretch")
+
+with p2:
+    st.subheader("Customer Loyalty Card Distribution")
+    card_df = df_base.groupby("loyalty_card").size().reset_index(name="count")
+    card_df["percent"] = card_df["count"] / card_df["count"].sum()
+    card_pie = (
+        alt.Chart(card_df)
+        .mark_arc()
+        .encode(
+            theta="count:Q",
+            color="loyalty_card:N",
+            tooltip=[
+                alt.Tooltip("loyalty_card:N"),
+                alt.Tooltip("count:Q", format=","),
+                alt.Tooltip("percent:Q", format=".1%"),
+            ],
+        )
+    )
+    st.altair_chart(card_pie, width="stretch")
 
 st.divider()
 

@@ -20,6 +20,7 @@ xgboost
 
 # Dashboard
 streamlit
+altair
 watchdog
 
 # Jupyter

@@ -29,7 +29,6 @@ def invoke_claude(
     temperature: float = 0.2,
 ) -> str:
     brt = get_bedrock_client()
-
     body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
@@ -37,21 +36,17 @@ def invoke_claude(
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
     }
-
     resp = brt.invoke_model(
         modelId=BEDROCK_MODEL_ID,
         body=json.dumps(body).encode("utf-8"),
         contentType="application/json",
         accept="application/json",
     )
-
     payload = json.loads(resp["body"].read())
-
     parts = []
     for block in payload.get("content", []):
         if block.get("type") == "text":
             parts.append(block.get("text", ""))
-
     return "\n".join(parts).strip()
 
 
@@ -254,7 +249,6 @@ if "selected_gender" not in st.session_state:
     st.session_state.selected_gender = "All"
 if "selected_cards" not in st.session_state:
     st.session_state.selected_cards = []
-
 
 prov_domain = sorted(df["province"].dropna().unique().tolist())
 seg_domain = [
@@ -656,7 +650,6 @@ def compute_operation(
             .reset_index()
         )
 
-        # Add retention_rate as inverse of cancelled_rate
         out["retention_rate"] = 1 - out["cancelled_rate"]
 
         sort_by = op_item.get("sort_by", "avg_churn_score")
@@ -924,18 +917,15 @@ def compute_operation(
         total_clv = float(df_slice["clv"].sum() or 0)
         total_value_at_risk = float(df_slice["churn_score"].sum() or 0)
 
-        # Calculate projected losses
         projected_churned_customers = total_customers * cancelled_rate
         projected_clv_loss = projected_churned_customers * avg_clv
 
-        # Assume average customer tenure of 3 years for annualization
         avg_tenure_years = max(1, (df_slice["tenure_months"].mean() or 12) / 12)
         annual_revenue_per_customer = avg_clv / avg_tenure_years
         projected_annual_loss = (
             projected_churned_customers * annual_revenue_per_customer
         )
 
-        # Segment the risk
         high_risk = df_slice[
             df_slice["churn_score"] > df_slice["churn_score"].quantile(0.75)
         ]
@@ -980,7 +970,6 @@ def compute_operation(
                 "difference_pct": round(diff_pct, 1),
             }
 
-        # Segment distribution for churned vs retained
         churned_segments = (
             churned.groupby("rfm_segment")["loyalty_number"].nunique().to_dict()
         )
@@ -1086,8 +1075,6 @@ def _sanitize_plan(plan: dict) -> dict:
             if segment_filter:
                 clean["segment_filter"] = str(segment_filter).strip()
 
-        # tenure_analysis, revenue_impact, correlation_drivers have no params
-
         ops.append(clean)
         seen.add(op)
 
@@ -1146,7 +1133,6 @@ recency, frequency, monetary, tenure_months, is_cancelled
         planner_error = str(e)
         plan = build_default_plan()
 
-    # baseline + slice kpis always present
     computed = {
         "kpis_baseline": baseline,
         "kpis_slice": {

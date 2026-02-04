@@ -1,16 +1,82 @@
-import os
 import streamlit as st
 import awswrangler as wr
 import altair as alt
 import pandas as pd
+import json
+import boto3
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
-DATABASE = os.getenv("GLUE_DB")
+GLUE_DATABASE = os.getenv("GLUE_DB")
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID")
+AWS_REGION = os.getenv("AWS_REGION")
 
 st.set_page_config(page_title="Airline Customer Analytics", layout="wide")
 
 RFM_DOMAIN = ["Dormant", "At Risk", "Potential", "Loyal", "Champions"]
+
+
+@st.cache_resource
+def get_bedrock_client():
+    return boto3.client("bedrock-runtime", region_name=AWS_REGION)
+
+
+def invoke_claude(
+    user_prompt: str,
+    system_prompt: str,
+    max_tokens: int = 800,
+    temperature: float = 0.2,
+) -> str:
+    brt = get_bedrock_client()
+
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
+
+    resp = brt.invoke_model(
+        modelId=BEDROCK_MODEL_ID,
+        body=json.dumps(body).encode("utf-8"),
+        contentType="application/json",
+        accept="application/json",
+    )
+
+    payload = json.loads(resp["body"].read())
+
+    parts = []
+    for block in payload.get("content", []):
+        if block.get("type") == "text":
+            parts.append(block.get("text", ""))
+
+    return "\n".join(parts).strip()
+
+
+def get_dashboard_context(df_base, baseline, seg_df, province_df):
+    return {
+        "filters": {
+            "provinces": st.session_state.selected_provinces,
+            "segments": st.session_state.selected_segments,
+            "gender": st.session_state.selected_gender,
+            "cards": st.session_state.selected_cards,
+        },
+        "baseline_kpis": baseline,
+        "slice_kpis": {
+            "customers": int(df_base["loyalty_number"].nunique()),
+            "avg_clv": float(df_base["clv"].mean() or 0),
+            "cancelled_rate": float(df_base["is_cancelled"].mean() or 0),
+            "avg_recency_days": float((df_base["recency"].mean() or 0) * 30),
+            "avg_frequency": float(df_base["frequency"].mean() or 0),
+            "avg_monetary": float(df_base["monetary"].mean() or 0),
+            "avg_tenure_months": float(df_base["tenure_months"].mean() or 0),
+            "avg_churn_score": float(df_base["churn_score"].mean() or 0),
+        },
+        "province_preview": province_df.head(5).to_dict("records"),
+        "segment_preview": seg_df.head(5).to_dict("records"),
+    }
 
 
 @st.cache_data(ttl=600, show_spinner="Loading...")
@@ -33,7 +99,7 @@ def load_customer_scored():
     """
     df = wr.athena.read_sql_query(
         sql=sql,
-        database=DATABASE,
+        database=GLUE_DATABASE,
         ctas_approach=False,
     )
 
@@ -56,10 +122,31 @@ def load_customer_scored():
 
 df = load_customer_scored()
 
+baseline = {
+    "customers": int(df["loyalty_number"].nunique()),
+    "avg_clv": float(df["clv"].mean() or 0),
+    "cancelled_rate": float(df["is_cancelled"].mean() or 0),
+    "avg_recency_days": float((df["recency"].mean() or 0) * 30),
+    "avg_frequency": float(df["frequency"].mean() or 0),
+    "avg_monetary": float(df["monetary"].mean() or 0),
+    "avg_tenure_months": float(df["tenure_months"].mean() or 0),
+    "avg_churn_score": float(df["churn_score"].mean() or 0),
+}
+
 st.title("Airline Customer Analytics")
 st.caption("Customer portfolio snapshot and churn risk prioritisation")
 
 st.sidebar.header("Filters")
+
+if "selected_provinces" not in st.session_state:
+    st.session_state.selected_provinces = []
+if "selected_segments" not in st.session_state:
+    st.session_state.selected_segments = []
+if "selected_gender" not in st.session_state:
+    st.session_state.selected_gender = "All"
+if "selected_cards" not in st.session_state:
+    st.session_state.selected_cards = []
+
 
 prov_domain = sorted(df["province"].dropna().unique().tolist())
 seg_domain = [
@@ -72,10 +159,18 @@ card_domain = sorted(
     [c for c in df["loyalty_card"].dropna().unique().tolist() if str(c).strip() != ""]
 )
 
-selected_provinces = st.sidebar.multiselect("Province", prov_domain, default=[])
-selected_segments = st.sidebar.multiselect("RFM Segment", seg_domain, default=[])
-selected_gender = st.sidebar.selectbox("Gender", ["All"] + gender_domain, index=0)
-selected_cards = st.sidebar.multiselect("Loyalty Card", card_domain, default=[])
+selected_provinces = st.sidebar.multiselect(
+    "Province", prov_domain, key="selected_provinces"
+)
+selected_segments = st.sidebar.multiselect(
+    "RFM Segment", seg_domain, key="selected_segments"
+)
+selected_gender = st.sidebar.selectbox(
+    "Gender", ["All"] + gender_domain, key="selected_gender"
+)
+selected_cards = st.sidebar.multiselect(
+    "Loyalty Card", card_domain, key="selected_cards"
+)
 
 mask = pd.Series(True, index=df.index)
 
@@ -322,3 +417,59 @@ top_risk_df["Churn Score"] = pd.to_numeric(
 ).round(0)
 
 st.dataframe(top_risk_df, width="stretch")
+
+st.divider()
+
+st.subheader("Ask the AI Agent")
+
+ctx = get_dashboard_context(df_base, baseline, seg_df, province_df)
+
+if "chat" not in st.session_state:
+    st.session_state.chat = [
+        {
+            "role": "assistant",
+            "content": "Ask me about the current dashboard slice. I will compare it to the overall baseline.",
+        }
+    ]
+
+for m in st.session_state.chat:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+q = st.chat_input("Try: Why is churn high in this slice?")
+if q:
+    st.session_state.chat.append({"role": "user", "content": q})
+    with st.chat_message("user"):
+        st.markdown(q)
+
+    SYSTEM_PROMPT = """
+You are a stakeholder-facing analytics copilot for an airline loyalty dashboard.
+
+Rules:
+- Use ONLY the numbers in the provided context JSON.
+- Do not invent metrics or values.
+- Explain in simple, non-technical language.
+- Provide 2–4 churn conversion actions grounded in what the context shows.
+
+Format:
+1) What we're seeing
+2) Why it's happening
+3) What we should do next
+4) Evidence (key numbers)
+"""
+
+    user_prompt = f"""
+User question: {q}
+
+Context JSON:
+{json.dumps(ctx, indent=2)}
+"""
+
+    try:
+        ans = invoke_claude(user_prompt=user_prompt, system_prompt=SYSTEM_PROMPT)
+    except Exception as e:
+        ans = f"Bedrock call failed: {e}"
+
+    st.session_state.chat.append({"role": "assistant", "content": ans})
+    with st.chat_message("assistant"):
+        st.markdown(ans)

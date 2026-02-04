@@ -4,16 +4,20 @@ End-to-end customer analytics and ML pipeline using airline loyalty data: ETL (S
 
 ## Status
 
-The pipeline is **implemented end-to-end** (see [Enabling the pipeline](#enabling-the-pipeline) below):
+The pipeline and dashboard are **fully implemented** (see sections below):
 
 - **ETL**: Raw CSV → S3 → Parquet (processed) → curated customer features
 - **Athena**: Database, `customer_features` and `churn_predictions` external tables, `customer_scored` view
 - **ML**: SageMaker Processing job trains an XGBoost churn model and writes artifacts and predictions to S3
+- **Dashboard**: Streamlit app with interactive filters, visualizations, and AI-powered Q&A
+- **AI Agent**: Bedrock-powered conversational analytics with 18 operations for executive insights
 
 ## Tech stack
 
 - **Python**: Pandas, PyArrow, scikit-learn, XGBoost
-- **AWS**: S3, Athena, SageMaker (Processing with sklearn container)
+- **AWS**: S3, Athena, SageMaker (Processing with sklearn container), Bedrock (Claude AI)
+- **Dashboard**: Streamlit, Altair (visualizations)
+- **Data**: AWS Data Wrangler for Athena queries
 
 ## What’s implemented
 
@@ -56,6 +60,53 @@ The main pipeline (`src/main.py`) runs in order when **`FLAG` is set to `True`**
 
 By default, **`FLAG` is `False`** in `src/main.py`, so `python -m src` does nothing. Set `FLAG = True` in `src/main.py` to run the full pipeline (Athena, S3, SageMaker).
 
+### Dashboard
+
+Run the interactive Streamlit dashboard:
+
+```bash
+streamlit run src/app/dashboard.py
+```
+
+**Features:**
+
+- **Filters**: Province, RFM Segment, Gender, Loyalty Card (combined with AND logic)
+- **KPI Metrics**: Total Customers, Average CLV, Cancellation Rate, Avg Recency (days), Avg Frequency (flights), Avg Monetary (km), Avg Tenure (months)
+- **Visualizations**:
+  - Customer Segments bar chart (colored by churn risk)
+  - Customer Provinces bar chart (colored by churn risk)
+  - Gender distribution pie chart
+  - Loyalty Card distribution pie chart
+  - Top 50 Risk Customers table (sorted by churn score)
+- **AI Agent**: Ask executive-level questions in natural language (see [AI Agent Operations](#ai-agent-operations))
+
+### AI Agent Operations
+
+The dashboard includes a conversational AI agent powered by AWS Bedrock (Claude). Ask questions like:
+
+- "Where should we focus retention efforts?"
+- "Who should we reward?"
+- "Why are customers churning?"
+- "Compare Champions vs Dormant segments"
+- "What's the financial impact if we do nothing?"
+
+**Available Operations (18 total):**
+
+| Category           | Operations                                                                                     |
+| ------------------ | ---------------------------------------------------------------------------------------------- |
+| Portfolio Overview | `kpis_baseline`, `kpis_slice`                                                              |
+| Grouped Summaries  | `summary_by_segment`, `summary_by_province`, `summary_by_card`, `summary_by_gender`    |
+| Customer Lists     | `top_risk_customers` (highest churn risk), `top_value_customers` (highest CLV for rewards) |
+| Value at Risk      | `value_at_risk_by_segment`, `value_at_risk_by_province`                                    |
+| Analysis           | `churn_by_clv_tier`, `tenure_analysis`, `correlation_drivers`                            |
+| Scenarios          | `do_nothing_scenario`, `revenue_impact`, `single_priority_initiative`                    |
+| Comparisons        | `segment_comparison`                                                                         |
+
+The agent uses a two-stage approach:
+
+1. **Planner**: Selects 3-6 operations based on question intent
+2. **Narrator**: Transforms computed data into executive insights with recommendations
+
 ### Local notebooks
 
 - `notebooks/01_pre-processing.ipynb` – pre-processing, writes `data/processed/*.parquet` (e.g. `clh.parquet`, `cfa.parquet`)
@@ -67,7 +118,9 @@ By default, **`FLAG` is `False`** in `src/main.py`, so `python -m src` does noth
 ```
 ├── src/                    # Application code
 │   ├── main.py             # Pipeline entry point (gated by FLAG)
-│   ├── config/             # Env-based config (S3, Athena, SageMaker)
+│   ├── app/                # Dashboard application
+│   │   └── dashboard.py    # Streamlit dashboard with AI agent (1200+ lines)
+│   ├── config/             # Env-based config (S3, Athena, SageMaker, Bedrock)
 │   ├── etl/                # CSV→Parquet, customer features
 │   ├── model/              # XGBoost churn training (SageMaker script)
 │   ├── scripts/            # run_xgb_job (SageMaker Processor)
@@ -140,11 +193,15 @@ GLUE_DB=airline_analytics
 # SageMaker Processing job
 ROLE_ARN=arn:aws:iam::ACCOUNT:role/your-sagemaker-role
 PROCESSING_INSTANCE_TYPE=ml.t3.medium
+
+# Dashboard AI Agent (Bedrock)
+BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
 ```
 
-- `AWS_REGION` / `AWS_DEFAULT_REGION`: used for Athena, S3, SageMaker.
+- `AWS_REGION` / `AWS_DEFAULT_REGION`: used for Athena, S3, SageMaker, Bedrock.
 - Athena results: `s3://$S3_BUCKET/$ATHENA_RESULTS_PREFIX/` must be writable.
 - `ROLE_ARN`: IAM role for SageMaker Processing (S3 access to input/output, plus Processing permissions).
+- `BEDROCK_MODEL_ID`: Claude model ID for AI agent (requires Bedrock access in your AWS account).
 
 ### 3. Run the pipeline
 
@@ -157,7 +214,17 @@ python -m src
 
 This runs the full flow: Athena DB + customer_features table, S3 upload/transform/curate, SageMaker XGBoost job, then churn_predictions table and customer_scored view.
 
-### 4. Run notebooks only (local)
+### 4. Run the dashboard
+
+After the pipeline has run (or if you have existing data in Athena):
+
+```bash
+streamlit run src/app/dashboard.py
+```
+
+Open http://localhost:8501 in your browser. The dashboard connects to Athena for data and Bedrock for AI-powered Q&A.
+
+### 5. Run notebooks only (local)
 
 Open and run:
 
@@ -167,14 +234,4 @@ Open and run:
 
 ## Known limitations
 
-- **Pipeline gate**: The main pipeline runs only when `FLAG = True` in `src/main.py`; otherwise `python -m src` is a no-op.
 - **Infra SQL**: `01_create_customer_features_table.sql` and `02_create_churn_pred_table.sql` use **hard-coded** S3 locations (`s3://airline-customer-analysis/...`). They are not parameterized from `S3_BUCKET` / `CURATED_PREFIX`. Use that bucket/path or edit the SQL to match your setup.
-- **Schema**: `customer_features` table schema includes `country`; the Python feature build does not currently output `country`. Align schema or add `country` to the feature output if needed.
-- **Athena context**: `run_sql_file` does not set `QueryExecutionContext.database`; DDL uses fully qualified names (`airline_analytics.*`).
-- **Costs & permissions**: `python -m src` uses S3, Athena, and SageMaker; ensure IAM allows it and be aware of AWS usage.
-
-## Roadmap
-
-- Parameterize infra SQL (bucket, prefixes) via env or templating.
-- QuickSight (or similar) dashboards for KPIs and segments.
-- Conversational self service agent.

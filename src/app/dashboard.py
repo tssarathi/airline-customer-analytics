@@ -10,18 +10,23 @@ DATABASE = os.getenv("GLUE_DB")
 
 st.set_page_config(page_title="Airline Customer Analytics", layout="wide")
 
+RFM_DOMAIN = ["Dormant", "At Risk", "Potential", "Loyal", "Champions"]
+
 
 @st.cache_data(ttl=600, show_spinner="Loading...")
 def load_customer_scored():
     sql = """
     SELECT
         loyalty_number,
+        gender,
         province,
         loyalty_card,
         clv,
         rfm_segment,
         churn_score,
         recency,
+        frequency,
+        monetary,
         tenure_months,
         is_cancelled
     FROM customer_scored;
@@ -32,10 +37,18 @@ def load_customer_scored():
         ctas_approach=False,
     )
 
+    # Casts / types
     if "is_cancelled" in df.columns:
         df["is_cancelled"] = df["is_cancelled"].astype(bool)
 
-    for c in ["clv", "churn_score", "recency", "tenure_months"]:
+    for c in [
+        "clv",
+        "churn_score",
+        "recency",
+        "tenure_months",
+        "frequency",
+        "monetary",
+    ]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
@@ -49,8 +62,8 @@ st.caption("Customer portfolio snapshot and churn risk prioritisation")
 
 st.sidebar.header("Filters")
 
-prov_domain = sorted(df["province"].dropna().unique().tolist())
-seg_domain = sorted(df["rfm_segment"].dropna().unique().tolist())
+prov_domain = sorted(df["province"].unique().tolist())
+seg_domain = [s for s in RFM_DOMAIN if s in set(df["rfm_segment"].unique().tolist())]
 
 selected_provinces = st.sidebar.multiselect("Province", prov_domain, default=[])
 selected_segments = st.sidebar.multiselect("RFM Segment", seg_domain, default=[])
@@ -61,22 +74,28 @@ if selected_provinces:
 if selected_segments:
     mask &= df["rfm_segment"].isin(selected_segments)
 
-df_f = df.loc[mask].copy()
+df_base = df.loc[mask].copy()
 
-total_customers = df_f["loyalty_number"].nunique()
-avg_clv = df_f["clv"].mean()
-cancelled_rate = df_f["is_cancelled"].mean() if "is_cancelled" in df_f.columns else 0
-avg_recency_days = (df_f["recency"].mean() or 0) * 30
-avg_tenure_months = df_f["tenure_months"].mean()
+total_customers = df_base["loyalty_number"].nunique()
+avg_clv = df_base["clv"].mean()
+cancelled_rate = (
+    df_base["is_cancelled"].mean() if "is_cancelled" in df_base.columns else 0
+)
+avg_recency_days = df_base["recency"].mean() * 30
+avg_frequency = df_base["frequency"].mean()
+avg_monetary_value = df_base["monetary"].mean()
+avg_tenure_months = df_base["tenure_months"].mean()
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
 c1.metric("Total Customers", f"{int(total_customers):,}")
 c2.metric("Average CLV", f"${(avg_clv or 0):,.0f}")
 c3.metric("Cancellation Rate", f"{(cancelled_rate or 0):.0%}")
 c4.metric("Avg Recency (days)", f"{(avg_recency_days or 0):.0f}")
-c5.metric("Avg Tenure (months)", f"{(avg_tenure_months or 0):.0f}")
+c5.metric("Avg Frequency (flights)", f"{(avg_frequency or 0):.0f}")
+c6.metric("Avg Monetary (kms)", f"{(avg_monetary_value or 0):,.0f}")
+c7.metric("Avg Tenure (months)", f"{(avg_tenure_months or 0):.0f}")
 
-st.subheader("Customer Segments")
+st.divider()
 
 seg_base_df = (
     df if not selected_provinces else df[df["province"].isin(selected_provinces)]
@@ -85,10 +104,14 @@ seg_base_df = (
 seg_df = (
     seg_base_df.groupby("rfm_segment", dropna=False)
     .agg(
-        customers=("loyalty_number", "size"),
+        customers=("loyalty_number", "nunique"),
         avg_clv=("clv", "mean"),
         avg_churn_score=("churn_score", "mean"),
         avg_recency_days=("recency", lambda s: s.mean() * 30),
+        avg_frequency=("frequency", "mean"),
+        avg_monetary=("monetary", "mean"),
+        avg_tenure_months=("tenure_months", "mean"),
+        is_cancelled=("is_cancelled", "mean"),
     )
     .reset_index()
     .sort_values("avg_churn_score", ascending=False)
@@ -101,10 +124,14 @@ prov_base_df = (
 province_df = (
     prov_base_df.groupby("province", dropna=False)
     .agg(
-        customers=("loyalty_number", "size"),
+        customers=("loyalty_number", "nunique"),
         avg_clv=("clv", "mean"),
         avg_churn_score=("churn_score", "mean"),
         avg_recency_days=("recency", lambda s: s.mean() * 30),
+        avg_frequency=("frequency", "mean"),
+        avg_monetary=("monetary", "mean"),
+        avg_tenure_months=("tenure_months", "mean"),
+        is_cancelled=("is_cancelled", "mean"),
     )
     .reset_index()
     .sort_values("avg_churn_score", ascending=False)
@@ -132,8 +159,8 @@ base1 = (
         x=alt.X(
             "rfm_segment:N",
             title="RFM Segment",
-            axis=alt.Axis(labelAngle=-45, labelBaseline="top"),
-            scale=alt.Scale(domain=seg_domain),
+            axis=alt.Axis(labelAngle=-45, labelBaseline="top", labelOverlap=False),
+            scale=alt.Scale(domain=RFM_DOMAIN),
         ),
         y=alt.Y("customers:Q", title="No of Customers"),
         color=alt.Color(
@@ -150,10 +177,18 @@ base1 = (
         tooltip=[
             alt.Tooltip("customers:Q", format=",", title="No of Customers"),
             alt.Tooltip("avg_clv:Q", format="$,.0f", title="Avg CLV"),
-            alt.Tooltip("avg_churn_score:Q", format=".2f", title="Avg Churn Score"),
+            alt.Tooltip("avg_churn_score:Q", format=".0f", title="Avg Churn Score"),
             alt.Tooltip(
                 "avg_recency_days:Q", format=",.0f", title="Avg Recency (days)"
             ),
+            alt.Tooltip(
+                "avg_frequency:Q", format=",.0f", title="Avg Frequency (flights)"
+            ),
+            alt.Tooltip("avg_monetary:Q", format=",.0f", title="Avg Monetary (kms)"),
+            alt.Tooltip(
+                "avg_tenure_months:Q", format=",.0f", title="Avg Tenure (months)"
+            ),
+            alt.Tooltip("is_cancelled:Q", format=".0%", title="Cancellation Rate"),
         ],
     )
 )
@@ -165,8 +200,8 @@ base1_holder = (
         x=alt.X(
             "rfm_segment:N",
             title="RFM Segment",
-            axis=alt.Axis(labelAngle=-45, labelBaseline="top"),
-            scale=alt.Scale(domain=seg_domain),
+            axis=alt.Axis(labelAngle=-45, labelBaseline="top", labelOverlap=False),
+            scale=alt.Scale(domain=RFM_DOMAIN),
         )
     )
 )
@@ -181,10 +216,6 @@ base1_visible = (
 
 chart1 = base1_holder + base1_visible
 
-st.altair_chart(chart1, width="stretch")
-
-st.subheader("Province Summary")
-
 base2 = (
     alt.Chart(province_df)
     .mark_bar()
@@ -192,7 +223,9 @@ base2 = (
         x=alt.X(
             "province:N",
             title="Province",
-            axis=alt.Axis(labelAngle=-45, labelBaseline="top", labelLimit=200),
+            axis=alt.Axis(
+                labelAngle=-45, labelBaseline="top", labelLimit=200, labelOverlap=False
+            ),
             scale=alt.Scale(domain=prov_domain),
         ),
         y=alt.Y("customers:Q", title="No of Customers"),
@@ -209,10 +242,18 @@ base2 = (
         tooltip=[
             alt.Tooltip("customers:Q", format=",", title="No of Customers"),
             alt.Tooltip("avg_clv:Q", format="$,.0f", title="Avg CLV"),
-            alt.Tooltip("avg_churn_score:Q", format=".2f", title="Avg Churn Score"),
+            alt.Tooltip("avg_churn_score:Q", format=".0f", title="Avg Churn Score"),
             alt.Tooltip(
                 "avg_recency_days:Q", format=",.0f", title="Avg Recency (days)"
             ),
+            alt.Tooltip(
+                "avg_frequency:Q", format=",.0f", title="Avg Frequency (flights)"
+            ),
+            alt.Tooltip("avg_monetary:Q", format=",.0f", title="Avg Monetary (kms)"),
+            alt.Tooltip(
+                "avg_tenure_months:Q", format=",.0f", title="Avg Tenure (months)"
+            ),
+            alt.Tooltip("is_cancelled:Q", format=".0%", title="Cancellation Rate"),
         ],
     )
 )
@@ -224,7 +265,9 @@ base2_holder = (
         x=alt.X(
             "province:N",
             title="Province",
-            axis=alt.Axis(labelAngle=-45, labelBaseline="top", labelLimit=200),
+            axis=alt.Axis(
+                labelAngle=-45, labelBaseline="top", labelLimit=200, labelOverlap=False
+            ),
             scale=alt.Scale(domain=prov_domain),
         )
     )
@@ -240,12 +283,20 @@ base2_visible = (
 
 chart2 = base2_holder + base2_visible
 
-st.altair_chart(chart2, width="stretch")
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("Customer Segments")
+    st.altair_chart(chart1)
+with col2:
+    st.subheader("Customer Provinces")
+    st.altair_chart(chart2)
+
+st.divider()
 
 st.subheader("Top Risk Customers")
 
 top_risk_df = (
-    df_f.sort_values("churn_score", ascending=False)
+    df_base.sort_values("churn_score", ascending=False)
     .head(50)[
         [
             "loyalty_number",
